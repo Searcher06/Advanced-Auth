@@ -2,6 +2,12 @@ import { Request, Response } from "express";
 import { registerSchema } from "./auth.schema";
 import { User } from "../../models/user.model";
 import { hashPassword } from "../../lib/hash";
+import jwt from "jsonwebtoken";
+import { sendEmail } from "../../lib/email";
+import { id } from "zod/locales";
+
+const getAppUrl = () =>
+  process.env.APP_URL || `http://localhost:${process.env.PORT}`;
 
 export async function registerHandler(req: Request, res: Response) {
   try {
@@ -32,6 +38,41 @@ export async function registerHandler(req: Request, res: Response) {
       twoFactorEnabled: false,
     });
 
-    // email verification
-  } catch (error) {}
+    const verifyToken = jwt.sign(
+      {
+        sub: newlyCreatedUser.id,
+      },
+      process.env.JWT_ACCESS_SECRET!,
+      {
+        expiresIn: "1d",
+      },
+    );
+
+    const verifyUrl = `${getAppUrl}/auth/verify-email?token=${verifyToken}`;
+
+    sendEmail(
+      newlyCreatedUser.email,
+      "Verify your email",
+      `
+      <p>please verify your email by clicking this link</p>
+      <p><a href="${verifyUrl}">${verifyUrl}</a></p>
+      `,
+    );
+
+    return res.status(201).json({
+      message: "User registered",
+      user: {
+        id: newlyCreatedUser.id,
+        email: newlyCreatedUser.email,
+        role: newlyCreatedUser.role,
+        isEmailVerified: newlyCreatedUser.isEmailVerified,
+      },
+    });
+  } catch (error) {
+    console.log(error);
+
+    return res.status(500).json({
+      message: "Internal server error",
+    });
+  }
 }
