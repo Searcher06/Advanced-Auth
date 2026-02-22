@@ -1,10 +1,11 @@
 import { Request, Response } from "express";
-import { registerSchema } from "./auth.schema";
+import { loginSchema, registerSchema } from "./auth.schema";
 import { User } from "../../models/user.model";
 import { hashPassword } from "../../lib/hash";
 import jwt from "jsonwebtoken";
 import { sendEmail } from "../../lib/email";
-import { id } from "zod/locales";
+import { checkPassword } from "../../lib/checkpassword";
+import { createAccessToken, createRefreshToken } from "../../lib/token";
 
 const getAppUrl = () =>
   process.env.APP_URL || `http://localhost:${process.env.PORT}`;
@@ -75,4 +76,91 @@ export async function registerHandler(req: Request, res: Response) {
       message: "Internal server error",
     });
   }
+}
+
+export async function verifyEmailHandler(req: Request, res: Response) {
+  const token = req.query.token as string | undefined;
+
+  if (!token) {
+    return res.status(400).json({
+      message: "Verification token is missing",
+    });
+  }
+
+  try {
+    const payload = jwt.verify(token, process.env.JWT_ACCESS_SECRET!) as {
+      sub: string;
+    };
+    const user = await User.findById(payload.sub);
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (user.isEmailVerified) {
+      return res.json({ message: "Email is already verified" });
+    }
+
+    user.isEmailVerified = true;
+    await user.save();
+
+    return res.status(200).json({ message: "Email is now verified!" });
+  } catch (error) {
+    console.log(error);
+    return res.status(500).json({
+      message: "Internal server error",
+    });
+  }
+}
+
+export async function loginHandler(req: Request, res: Response) {
+  try {
+    const result = loginSchema.safeParse(req.body);
+
+    if (!result.success) {
+      return res.status(400).json({
+        message: "Invalid data",
+        errors: result.error.flatten(),
+      });
+    }
+
+    const { email, password } = result.data;
+
+    const normalizedEmail = email.toLocaleLowerCase().trim();
+
+    const user = await User.findOne({ email: normalizedEmail });
+
+    if (!user) {
+      return res.status(400).json({ message: "Invalid email or password" });
+    }
+
+    const isPwdCorrect = await checkPassword(password, user.passwordHash);
+
+    if (!isPwdCorrect) {
+      return res.status(400).json({ message: "Invalid password" });
+    }
+
+    if (!user.isEmailVerified) {
+      return res
+        .status(403)
+        .json({ message: "Please verify your email before logging in..." });
+    }
+
+    const accessToken = createAccessToken(
+      user.id,
+      user.role,
+      user.tokenVersion,
+    );
+
+    const refreshToken = createRefreshToken(user.id, user.tokenVersion);
+
+    const isProd = process.env.NODE_ENV;
+
+    res.cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: "lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+  } catch (error) {}
 }
