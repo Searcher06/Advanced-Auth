@@ -10,6 +10,7 @@ import {
   createRefreshToken,
   verifyRefreshToken,
 } from "../../lib/token";
+import crypto from "crypto";
 
 const getAppUrl = () =>
   process.env.APP_URL || `http://localhost:${process.env.PORT}`;
@@ -235,6 +236,52 @@ export async function refreshHandler(req: Request, res: Response) {
         twoFactorEnabled: user.twoFactorEnabled,
       },
     });
+  } catch (error) {
+    console.log(error);
+
+    return res.status(500).json({
+      message: "Internal server error",
+    });
+  }
+}
+
+export async function logOutHandler(req: Request, res: Response) {
+  res.clearCookie("refreshToken", { path: "/" });
+  return res.status(200).json({
+    message: "Logged out",
+  });
+}
+
+export async function forgotPasswordHandler(req: Request, res: Response) {
+  const { email } = req.body as { email?: string };
+
+  if (!email) {
+    return res.status(400).json({ message: "Email is required" });
+  }
+
+  const normalizedEmail = email.toLocaleLowerCase().trim();
+
+  try {
+    const user = await User.findOne({ email: normalizedEmail });
+
+    if (!user) {
+      return res.json({
+        message:
+          "If an account with this email extist, we will send you a reset link",
+      });
+    }
+
+    const rawToken = crypto.randomBytes(32).toString("hex");
+
+    // prettier-ignore
+    const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
+
+    user.resetPasswordToken = tokenHash;
+    user.resetPasswordExpires = new Date(Date.now() + 15 * 60 * 1000);
+
+    await user.save();
+
+    const resetUrl = `${getAppUrl()}/auth/reset-password?token=${rawToken}`;
   } catch (error) {
     console.log(error);
 
