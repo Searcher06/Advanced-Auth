@@ -282,6 +282,69 @@ export async function forgotPasswordHandler(req: Request, res: Response) {
     await user.save();
 
     const resetUrl = `${getAppUrl()}/auth/reset-password?token=${rawToken}`;
+
+    console.log(resetUrl);
+    await sendEmail(
+      user.email,
+      "Reset your Password",
+      `
+      <p>You requested reset. Click on the below link to reset the password</p>
+      <p><a href="${resetUrl}">${resetUrl}</a>
+      `,
+    );
+
+    return res.json({
+      message:
+        "If an account with this email extist, we will send you a reset link",
+    });
+  } catch (error) {
+    console.log(error);
+
+    return res.status(500).json({
+      message: "Internal server error",
+    });
+  }
+}
+
+export async function resetPasswordHandler(req: Request, res: Response) {
+  const { token, password } = req.body as { token?: string; password?: string };
+
+  if (!token) {
+    return res.status(400).json({ message: "Reset token is missing" });
+  }
+
+  if (!password || password.length < 6) {
+    return res
+      .status(400)
+      .json({ message: "Password must be atleast 6 characters" });
+  }
+
+  try {
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+
+    const user = await User.findOne({
+      resetPasswordToken: tokenHash,
+      resetPasswordExpires: { $gt: new Date() },
+    });
+
+    if (!user) {
+      return res.status(400).json({ message: "Invalid or expired token" });
+    }
+
+    const newPasswordHash = await hashPassword(password);
+
+    user.passwordHash = newPasswordHash;
+
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpires = undefined;
+
+    user.tokenVersion = user.tokenVersion + 1;
+
+    await user.save();
+
+    return res.json({
+      message: "Password reset successfully",
+    });
   } catch (error) {
     console.log(error);
 
