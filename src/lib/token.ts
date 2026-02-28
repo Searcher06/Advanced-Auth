@@ -25,3 +25,11 @@ export const verifyRefreshToken = (token: string) => {
     tokenVersion: number;
   };
 };
+
+export const verifyAccessToken = (token: string) => {
+  return jwt.verify(token, process.env.JWT_ACCESS_SECRET!) as {
+    sub: string;
+    role: "user" | "admin";
+    tokenVersion: number;
+  };
+};
