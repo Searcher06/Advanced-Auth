@@ -27,5 +27,18 @@ export const requireAuth = async (
     if (user.tokenVersion !== payload.tokenVersion) {
       return res.status(400).json({ messaage: "Token invalidated!" });
     }
-  } catch (error) {}
+
+    const authReq = req as any;
+
+    authReq.user = {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      isEmailVerified: user.isEmailVerified,
+    };
+    next();
+  } catch (error) {
+    return res.status(400).json({ messaage: "Invalidated token!" });
+  }
 };
